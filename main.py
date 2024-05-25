@@ -19,21 +19,30 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 
 client = openai.OpenAI()
 
-def search_endpoints(query):
+def search_index(query, index_name, metadata_name):
+    """
+    Search a vector database for matches given a query string
+
+    query (str): query string i.e. "what does x endpoint do?"
+
+    index_name (str): filename of faiss index i.e. 'endpoints_index.faiss'
+
+    metadata_name (str): filename of metadata json file (list of texts associated with the index) i.e. 'endpoints_metadata.json' 
+    """
     query_embedding = get_embeddings([query])[0]
     query_embedding_np = np.array([query_embedding]).astype('float32')
     
-    index = faiss.read_index('endpoints_index.faiss')
+    index = faiss.read_index(index_name)
 
     # Perform the search
     distances, indices = index.search(query_embedding_np, k=5)
     
     # Load metadata
-    with open('endpoints_metadata.json', 'r') as f:
-        endpoints = json.load(f)
+    with open(metadata_name, 'r') as f:
+        metadata = json.load(f)
     
     # Retrieve matching endpoints
-    matches = [endpoints[i] for i in indices[0]]
+    matches = [metadata[i] for i in indices[0]]
     return matches
 
 # Create vector embeddings
@@ -48,29 +57,36 @@ def get_embeddings(texts):
 @app.route('/chat', methods=['POST'])
 def chat():
     user_message = request.json.get('message')
-    matches = search_endpoints(user_message)
+    endpoint_matches = search_index(user_message, 'endpoints_index.faiss', 'endpoints_metadata.json')
+    glossary_matches = search_index(user_message, 'glossary_index.faiss', 'glossary_metadata.json')
 
-    if matches:
+    if endpoint_matches:
         endpoint_context = "Here are endpoints (in order of similarity) that matched the users query in a vector database search of the OpenBankProject's API documentation:\n"
-        for match in matches:
+        for match in endpoint_matches:
             endpoint_context += f"\nEndpoint: {match['method'].upper()} {match['path']}\n"
             endpoint_context += f"Description: {match['description']}\n"
             endpoint_context += f"Parameters: {', '.join([p['name'] for p in match['parameters']])}\n"
             endpoint_context += f"Responses: {list(match['responses'].keys())}\n"
-
-        system_message = f"""
-            You are a helpful assistant for the Open Bank Project API.
-            Here is the some helpful information that could assist an answer: {endpoint_context}
-            """
         
     else:
-        endpoint_context = "No relevant endpoints were found for the users query when searching a vector database of the OBP-API documentation."
+        endpoint_context = "No relevant endpoints were found for the users query when searching a vector database of the OpenBankProject's API documentation."
 
-        system_message = f"""
-            You are a helpful assistant for the Open Bank Project API.
-            Here is the some helpful information that could assist an answer: {endpoint_context}
-            """
         
+    if glossary_matches:
+        print(glossary_matches)
+        glossary_context = "Here are some glossary entries (in order of similarity) that matched the users query in a vector database search of the OpenBankProject's API documentation:\n"
+        for match in glossary_matches:
+            glossary_context += f"\nTitle: {match['title']}\n"
+            glossary_context += f"Description: {match['description']}\n"
+        
+    else:
+        glossary_context = "No relevant glossary items were found for the users query when searching a vector database of the OpenBankProject's API documentation."
+        
+    system_message = f"""
+            You are a helpful assistant for the Open Bank Project API.
+            Here is the some helpful information that could assist an answer: {endpoint_context} \n {glossary_context}
+            """
+
     response = client.chat.completions.create(
         model="gpt-4o",
         messages=[
