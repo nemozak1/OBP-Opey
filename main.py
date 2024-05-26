@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 from dotenv import load_dotenv
 import faiss
 
@@ -13,6 +14,7 @@ except:
     print("warning, error loading .env")
 
 app = Flask(__name__)
+CORS(app)
 
 # Set your OpenAI API key
 openai.api_key = os.getenv("OPENAI_API_KEY")
@@ -57,10 +59,12 @@ def get_embeddings(texts):
 @app.route('/chat', methods=['POST'])
 def chat():
     user_message = request.json.get('message')
+    print(request)
     endpoint_matches = search_index(user_message, 'endpoints_index.faiss', 'endpoints_metadata.json')
     glossary_matches = search_index(user_message, 'glossary_index.faiss', 'glossary_metadata.json')
 
     if endpoint_matches:
+        print(endpoint_matches)
         endpoint_context = "Here are endpoints (in order of similarity) that matched the users query in a vector database search of the OpenBankProject's API documentation:\n"
         for match in endpoint_matches:
             endpoint_context += f"\nEndpoint: {match['method'].upper()} {match['path']}\n"
