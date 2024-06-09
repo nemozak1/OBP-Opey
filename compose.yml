@@ -17,5 +17,8 @@ services:
 
   redis:
     image: "redis:alpine"
+    env_file:
+      - .env
+    command: --port ${REDIS_PORT}
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT}:${REDIS_PORT}"

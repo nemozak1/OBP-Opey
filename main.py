@@ -32,8 +32,16 @@ client = openai.OpenAI()
 
 def get_conversation(session_id):
     """Retrieve the conversation history from Redis."""
-    conversation = redis_client.lrange(session_id, 0, -1)
-    return [msg.decode('utf-8') for msg in conversation]
+    try:
+        conversation = redis_client.lrange(session_id, 0, -1)
+    except redis.exceptions.ConnectionError as e:
+        app.logger.error(f"Error connecting to redis server: {e}")
+        raise
+    except Exception as e:
+        app.logger.error(f"Unexpected error occured: {e}")
+        raise
+    else:
+        return [msg.decode('utf-8') for msg in conversation]
 
 def save_conversation(session_id, conversation):
     """Save a message to the conversation history in Redis."""
@@ -87,7 +95,12 @@ def chat():
         return jsonify({'error': 'session_id and message are required'}), 400
 
     # Get conversation history from redis
-    conversation = [json.loads(message) for message in get_conversation(session_id)]
+    # Should implement a fallback mechanism in case redis does not work
+    try:
+        conversation = [json.loads(message) for message in get_conversation(session_id)]
+    except Exception as e:
+        app.logger.error(f"error occured: {e}")
+        return jsonify({'error': f"could not load conversation: {e}"}), 500
 
     # Append user message to conversation
     conversation.append({"role": "user", "content": user_message})

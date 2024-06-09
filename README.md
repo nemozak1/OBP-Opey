@@ -15,6 +15,7 @@ sudo docker compose build
 ```bash
 sudo docker compose up
 ```
+Note: If you are running this on your local docker engine and you already have an instance of redis running, you may need to change the ```REDIS_PORT``` in the env file to avoid clashing
 #### 4. Chat
 The chat endpoint should now be running at http://127.0.0.1:5000/chat
 
@@ -36,6 +37,7 @@ pip install -r requirements.txt
 * Copy .env-example to .env
     * Copy over your OpenAI API Key
     * For running locally, set ```REDIS_HOST=localhost```
+    * **You will also need redis set up and running locally**, find instructions for this [here](https://redis.io/docs/latest/operate/oss_and_stack/install/install-redis/)
 
 #### 3. Create vector index
 We need to register the OBP API documentation in a vector index, run:
