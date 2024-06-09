@@ -35,11 +35,21 @@ pip install -r requirements.txt
 #### 2. Set up Environment
 * Copy .env-example to .env
     * Copy over your OpenAI API Key
+    * For running locally, set ```REDIS_HOST=localhost```
 
 #### 3. Create vector index
 We need to register the OBP API documentation in a vector index, run:
 ```bash
 python create_vector_index.py
 ```
-#### 4. Chat
+#### 4. Run
+For development:
+```
+flask --app './main.py' run
+```
+For production we use gunicorn:
+```
+gunicorn --bind 0.0.0.0:5000 main:app
+```
+#### 5. Chat
 Same as for docker (see above)
