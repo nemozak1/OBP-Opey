@@ -1,0 +1,10 @@
+faiss-cpu
+openai
+python-dotenv
+numpy
+flask
+flask_cors
+requests
+redis
+gunicorn
+markdownify

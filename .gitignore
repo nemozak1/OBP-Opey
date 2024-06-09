@@ -167,9 +167,7 @@ endpoint_metadata.json
 faulty-endpoints.txt
 glossary_index.faiss
 glossary_metadata.json
-requirements.txt
 vector-database/
 .ipynb_checkpoints/
 OpenAI.ipynb
 OBP-GPT_TRAINING.ipynb
-OpenAI.ipynb
