@@ -160,18 +160,6 @@ def chat():
             continue
     
 
-    # append system context to conversation, or replace old system message
-    for message in conversation:
-        if message["role"] == "system":
-            print("replacing system message")
-            message = {"role": "system", "content": system_message}
-        elif message == conversation[-1]:
-            print("no system message found, adding one")
-            conversation.append({"role": "system", "content": system_message})
-        else:
-            continue
-    
-
     response = client.chat.completions.create(
         model="gpt-4o",
         messages=conversation
