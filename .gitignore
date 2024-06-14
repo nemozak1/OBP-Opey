@@ -171,3 +171,4 @@ vector-database/
 .ipynb_checkpoints/
 OpenAI.ipynb
 OBP-GPT_TRAINING.ipynb
+swagger.json

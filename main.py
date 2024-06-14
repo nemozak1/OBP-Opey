@@ -1,7 +1,3 @@
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-from dotenv import load_dotenv
-
 import faiss
 import redis
 import openai
@@ -9,6 +5,11 @@ import os
 import logging
 import numpy as np
 import json
+import tiktoken
+
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+from dotenv import load_dotenv
 
 try:
     load_dotenv()
@@ -48,6 +49,15 @@ def save_conversation(session_id, conversation):
     for message in conversation:
         redis_client.rpush(session_id, json.dumps(message))
 
+def overwrite_conversation(session_id, conversation):
+    try:
+        redis_client.delete(session_id)
+    except Exception as e:
+        print(f"Error overwriting conversation in redis cache: {e}")
+
+    for message in conversation:
+        redis_client.rpush(session_id, json.dumps(message))
+
 def search_index(query, index_name, metadata_name):
     """
     Search a vector database for matches given a query string
@@ -73,6 +83,33 @@ def search_index(query, index_name, metadata_name):
     # Retrieve matching endpoints
     matches = [metadata[i] for i in indices[0]]
     return matches
+
+def num_tokens_from_string(string: str, encoding: tiktoken.Encoding) -> int:
+    """Returns the number of tokens for a given string"""
+    num_tokens = len(encoding.encode(string))
+    return num_tokens
+
+def num_tokens_from_conversation(conversation: list, model: str) -> int:
+    # Count number of tokens in conversation
+    tokens_per_name=1
+    tokens_per_message=3
+    num_tokens = 0
+
+    # Get encoding for model
+    try:
+        encoding = tiktoken.encoding_for_model(model)
+    except KeyError:
+        print(f"Tiktoken encoding for model '{model}' not found, defaulting to 'cl100k_base' encoding")
+        encoding = tiktoken.get_encoding('cl100k_base')
+
+    for message in conversation:
+        num_tokens += tokens_per_message
+        for key, value in message.items():
+            num_tokens += num_tokens_from_string(value, encoding)
+        if key == "name":
+                num_tokens += tokens_per_name
+
+    return num_tokens
 
 # Create vector embeddings
 def get_embeddings(texts):
@@ -149,19 +186,54 @@ def chat():
             """
 
     # append system context to conversation, or replace old system message
-    for message in conversation:
+    for i, message in enumerate(conversation):
         if message["role"] == "system":
             print("replacing system message")
-            message = {"role": "system", "content": system_message}
+            conversation[i] = {"role": "system", "content": system_message}
+            break
         elif message == conversation[-1]:
             print("no system message found, adding one")
-            conversation.append({"role": "system", "content": system_message})
+            conversation.insert(0, {"role": "system", "content": system_message})
+            break
         else:
             continue
-    
 
+    # DEBUG
+    for message in conversation:
+        print('{' + message['role'] + ": " + " ".join(word for word in message['content'].split()[:3]) + "..." + "}")
+
+    # Choose model
+    model = 'gpt-4o'
+
+    num_tokens = num_tokens_from_conversation(conversation, 'gpt-4o')
+
+    print(f"Number of tokens: {num_tokens}")
+
+    if num_tokens > int(os.getenv('CONVERSATION_SUMMARY_TOKENS_LIMIT', 15000)):
+        token_limit_reached=True
+        # if the number of tokens in the conversation is too large, 
+        # summarize the previous conversation and put it in the system message, 
+        # remove the rest of the conversation
+        system_summary_message = {'role': 'user', 'content': "Summarize the previous conversation in a paragraph. Paying special attention to specific API's the user has requested/used."}
+        # Summarize everything except for the current user prompt 
+        conversation_to_summarise = conversation[:-1]
+        conversation_to_summarise.append(system_summary_message)
+        summary_response = client.chat.completions.create(
+            model=model,
+            messages=conversation_to_summarise
+        )
+        print(summary_response.choices[0].message.content)
+        system_message += f"\nHere is a summary of the previous conversation had with the user: {summary_response.choices[0].message.content}"
+        conversation = [{"role": "system", "content": system_message}] # Remove all previous messages in the conversation, give only system message with conversation summary
+        conversation.append({"role": "user", "content": user_message})
+
+        print(f"Summarized conversation tokens: {num_tokens_from_conversation(conversation, 'gpt-4o')}")
+    else:
+        token_limit_reached = False
+
+    # Get response from gpt
     response = client.chat.completions.create(
-        model="gpt-4o",
+        model=model,
         messages=conversation
     )
 
@@ -169,7 +241,10 @@ def chat():
     
     conversation.append({"role": "assistant", "content": assistant_message})
     
-    save_conversation(session_id, conversation)
+    if token_limit_reached:
+        overwrite_conversation(session_id, conversation)
+    else:
+        save_conversation(session_id, conversation)
 
     return jsonify({'reply': assistant_message})
 
