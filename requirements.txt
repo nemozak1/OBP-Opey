@@ -8,3 +8,4 @@ requests
 redis
 gunicorn
 markdownify
+tiktoken
