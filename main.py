@@ -6,10 +6,13 @@ import logging
 import numpy as np
 import json
 import tiktoken
+import jwt
 
+from functools import wraps
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from dotenv import load_dotenv
+from jwt.exceptions import ExpiredSignatureError, InvalidSignatureError, DecodeError
 
 try:
     load_dotenv()
@@ -48,6 +51,8 @@ def save_conversation(session_id, conversation):
     """Save a message to the conversation history in Redis."""
     for message in conversation:
         redis_client.rpush(session_id, json.dumps(message))
+
+
 
 def overwrite_conversation(session_id, conversation):
     try:
@@ -120,12 +125,38 @@ def get_embeddings(texts):
     
     return [e.embedding for e in response.data]
 
+#Wrapper for JWT required endpoints
+def token_required(f):
+    @wraps(f)
+    def decorator(*args, **kwargs):
+        auth_header = request.headers.get('Authorization')
+        if not auth_header:
+            return jsonify({'error': 'Authorization header is missing'}), 401
+
+        token = auth_header.split(" ")[1]
+        try:
+            public_key = open(os.getenv("OBP_API_EXPLORER_II_PUBLIC_KEY_PATH", "./public_key.pem"), 'r').read()
+            decoded_token = jwt.decode(token, public_key, algorithms=["RS256"])
+        except ExpiredSignatureError:
+            return jsonify({'error': 'Token has expired'}), 401
+        except InvalidSignatureError:
+            return jsonify({'error': 'Invalid signature'}), 401
+        except DecodeError:
+            return jsonify({'error': 'Invalid token'}), 401
+
+        return f(decoded_token, *args, **kwargs)
+   
+    return decorator
+
 @app.route('/chat', methods=['POST'])
-def chat():
+@token_required
+def chat(decoded_token):
     data = request.json
     session_id = data.get('session_id')
     user_message = data.get('message')
     obp_api_host = data.get('obp_api_host')
+
+    app.logger.info(f"Incoming message from user {decoded_token['username']} (obp_user_id: {decoded_token['user_id']}):\n{json.dumps(data, indent=2)}")
 
     # Validate session_id and user_message
     if not session_id or not user_message:
@@ -247,6 +278,10 @@ def chat():
         save_conversation(session_id, conversation)
 
     return jsonify({'reply': assistant_message})
+
+@app.route('/feedback', methods=['POST'])
+def feedback():
+    data = request.json
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0')

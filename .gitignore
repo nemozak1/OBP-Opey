@@ -172,3 +172,5 @@ vector-database/
 OpenAI.ipynb
 OBP-GPT_TRAINING.ipynb
 swagger.json
+private_key.pem
+public_key.pem
