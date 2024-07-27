@@ -1,18 +1,15 @@
-import faiss
+# Description: This file contains the main Flask application that serves as the backend for the chatbot.
+
 import redis
 import openai
 import os
 import logging
-import numpy as np
 import json
-import tiktoken
-import jwt
 
-from functools import wraps
+from utils import get_conversation, save_conversation, overwrite_conversation, search_index, num_tokens_from_conversation, token_required
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from dotenv import load_dotenv
-from jwt.exceptions import ExpiredSignatureError, InvalidSignatureError, DecodeError
 
 try:
     load_dotenv()
@@ -32,125 +29,23 @@ redis_client = redis.StrictRedis(host=redis_host, port=int(redis_port), db=0)
 
 # Set your OpenAI API key, create OpenAI client
 openai.api_key = os.getenv("OPENAI_API_KEY")
-client = openai.OpenAI()
+openai_client = openai.OpenAI()
 
-def get_conversation(session_id):
-    """Retrieve the conversation history from Redis."""
-    try:
-        conversation = redis_client.lrange(session_id, 0, -1)
-    except redis.exceptions.ConnectionError as e:
-        app.logger.error(f"Error connecting to redis server: {e}")
-        raise
-    except Exception as e:
-        app.logger.error(f"Unexpected error occured: {e}")
-        raise
-    else:
-        return [msg.decode('utf-8') for msg in conversation]
-
-def save_conversation(session_id, conversation):
-    """Save a message to the conversation history in Redis."""
-    for message in conversation:
-        redis_client.rpush(session_id, json.dumps(message))
-
-
-
-def overwrite_conversation(session_id, conversation):
-    try:
-        redis_client.delete(session_id)
-    except Exception as e:
-        print(f"Error overwriting conversation in redis cache: {e}")
-
-    for message in conversation:
-        redis_client.rpush(session_id, json.dumps(message))
-
-def search_index(query, index_name, metadata_name):
-    """
-    Search a vector database for matches given a query string
-
-    query (str): query string i.e. "what does x endpoint do?"
-
-    index_name (str): filename of faiss index i.e. 'endpoints_index.faiss'
-
-    metadata_name (str): filename of metadata json file (list of texts associated with the index) i.e. 'endpoints_metadata.json' 
-    """
-    query_embedding = get_embeddings([query])[0]
-    query_embedding_np = np.array([query_embedding]).astype('float32')
-    
-    index = faiss.read_index(index_name)
-
-    # Perform the search
-    distances, indices = index.search(query_embedding_np, k=5)
-    
-    # Load metadata
-    with open(metadata_name, 'r') as f:
-        metadata = json.load(f)
-    
-    # Retrieve matching endpoints
-    matches = [metadata[i] for i in indices[0]]
-    return matches
-
-def num_tokens_from_string(string: str, encoding: tiktoken.Encoding) -> int:
-    """Returns the number of tokens for a given string"""
-    num_tokens = len(encoding.encode(string))
-    return num_tokens
-
-def num_tokens_from_conversation(conversation: list, model: str) -> int:
-    # Count number of tokens in conversation
-    tokens_per_name=1
-    tokens_per_message=3
-    num_tokens = 0
-
-    # Get encoding for model
-    try:
-        encoding = tiktoken.encoding_for_model(model)
-    except KeyError:
-        print(f"Tiktoken encoding for model '{model}' not found, defaulting to 'cl100k_base' encoding")
-        encoding = tiktoken.get_encoding('cl100k_base')
-
-    for message in conversation:
-        num_tokens += tokens_per_message
-        for key, value in message.items():
-            num_tokens += num_tokens_from_string(value, encoding)
-        if key == "name":
-                num_tokens += tokens_per_name
-
-    return num_tokens
-
-# Create vector embeddings
-def get_embeddings(texts):
-    response = client.embeddings.create(
-        model="text-embedding-3-small",
-        input=texts
-    )
-    
-    return [e.embedding for e in response.data]
-
-#Wrapper for JWT required endpoints
-def token_required(f):
-    @wraps(f)
-    def decorator(*args, **kwargs):
-        auth_header = request.headers.get('Authorization')
-        if not auth_header:
-            return jsonify({'error': 'Authorization header is missing'}), 401
-
-        token = auth_header.split(" ")[1]
-        try:
-            public_key = open(os.getenv("OBP_API_EXPLORER_II_PUBLIC_KEY_PATH", "./public_key.pem"), 'r').read()
-            decoded_token = jwt.decode(token, public_key, algorithms=["RS256"])
-        except ExpiredSignatureError:
-            return jsonify({'error': 'Token has expired'}), 401
-        except InvalidSignatureError:
-            return jsonify({'error': 'Invalid signature'}), 401
-        except DecodeError:
-            return jsonify({'error': 'Invalid token'}), 401
-
-        return f(decoded_token, *args, **kwargs)
-   
-    return decorator
 
 @app.route('/chat', methods=['POST'])
 @token_required
 def chat(decoded_token):
+    """
+    Chat function that handles the conversation between the user and the assistant.
+
+    Args:
+        decoded_token (dict): Decoded json web token containing user information. This is used to verify incoming requests.
+    
+
+    Returns:
+        dict: JSON response containing the assistant's reply.
+    """
+    
     data = request.json
     session_id = data.get('session_id')
     user_message = data.get('message')
@@ -165,7 +60,7 @@ def chat(decoded_token):
     # Get conversation history from redis
     # Should implement a fallback mechanism in case redis does not work
     try:
-        conversation = [json.loads(message) for message in get_conversation(session_id)]
+        conversation = [json.loads(message) for message in get_conversation(session_id, redis_client, app)]
     except Exception as e:
         app.logger.error(f"error occured: {e}")
         return jsonify({'error': f"could not load conversation: {e}"}), 500
@@ -173,8 +68,8 @@ def chat(decoded_token):
     # Append user message to conversation
     conversation.append({"role": "user", "content": user_message})
 
-    endpoint_matches = search_index(user_message, './endpoint_index.faiss', './endpoint_metadata.json')
-    glossary_matches = search_index(user_message, './glossary_index.faiss', './glossary_metadata.json')
+    endpoint_matches = search_index(user_message, './endpoint_index.faiss', './endpoint_metadata.json', openai_client)
+    glossary_matches = search_index(user_message, './glossary_index.faiss', './glossary_metadata.json', openai_client)
 
     if endpoint_matches:
         match_list = [f"{m['path']} ({m['summary']})\n" for m in endpoint_matches]
@@ -249,7 +144,7 @@ def chat(decoded_token):
         # Summarize everything except for the current user prompt 
         conversation_to_summarise = conversation[:-1]
         conversation_to_summarise.append(system_summary_message)
-        summary_response = client.chat.completions.create(
+        summary_response = openai_client.chat.completions.create(
             model=model,
             messages=conversation_to_summarise
         )
@@ -263,7 +158,7 @@ def chat(decoded_token):
         token_limit_reached = False
 
     # Get response from gpt
-    response = client.chat.completions.create(
+    response = openai_client.chat.completions.create(
         model=model,
         messages=conversation
     )
@@ -273,9 +168,9 @@ def chat(decoded_token):
     conversation.append({"role": "assistant", "content": assistant_message})
     
     if token_limit_reached:
-        overwrite_conversation(session_id, conversation)
+        overwrite_conversation(session_id, conversation, redis_client)
     else:
-        save_conversation(session_id, conversation)
+        save_conversation(session_id, conversation, redis_client)
 
     return jsonify({'reply': assistant_message})
 

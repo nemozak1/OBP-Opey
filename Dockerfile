@@ -47,9 +47,13 @@ ENV PATH=/venv/bin:$PATH
 
 # Copy the vector index
 COPY --from=build /app/vector-database/ .
+
+# Copy the public key in
+COPY public_key.pem ./
+
 # Copy the application in.
-COPY main.py ./
+COPY app.py utils.py ./
 
 EXPOSE 5000
 
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "main:app", "--log-level", "debug"]
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "app:app", "--log-level", "debug"]

@@ -32,6 +32,15 @@ glossary_json = glossary_response.json()
 def resolve_reference(ref, definitions, resolved={}):
     """
     Resolves a $ref to its definition, avoiding circular references.
+
+    Parameters:
+    ref (str): The reference to be resolved.
+    definitions (dict): A dictionary containing the definitions.
+    resolved (dict, optional): A dictionary containing the resolved references. Defaults to an empty dictionary.
+
+    Returns:
+    dict: The resolved definition.
+
     """
     ref_name = ref.split('/')[-1]
     if ref_name in resolved:
@@ -65,6 +74,16 @@ def resolve_properties(properties, definitions, resolved):
     return resolved_properties
 
 def parse_swagger(swagger_json):
+    """
+    Parses a Swagger JSON file and extracts information about the endpoints.
+
+    Args:
+        swagger_json (dict): The Swagger JSON object.
+
+    Returns:
+        list: A list of dictionaries, where each dictionary represents an endpoint and its details.
+    """
+    
     paths = swagger_json['paths']
     definitions = swagger_json['definitions']
 
@@ -128,16 +147,23 @@ def parse_swagger(swagger_json):
 
                         endpoint_info["responses"].append(response_resolved)
                         
-                    
-                    
-                    
-            
             endpoints.append(endpoint_info)
     return endpoints
 
 endpoints = parse_swagger(swagger_json)
 
 def parse_glossary(glossary_json):
+    """
+    Parses the glossary JSON and extracts the title and description of each glossary item.
+    
+    Args:
+        glossary_json (dict): The glossary JSON containing the glossary items.
+        
+    Returns:
+        list: A list of dictionaries, where each dictionary represents a parsed glossary item
+              with 'title' and 'description' keys.
+    """
+    
     glossary_items = glossary_json['glossary_items']
     parsed_items = []
     
@@ -171,11 +197,21 @@ def get_embeddings(texts):
 
 def create_and_save_embedding_faiss(formatted_texts: list, json_metadata: list, filename: str):
     """
-    Creates and saves text embeddings and metadata for a given list of texts 
+    Creates and saves text embeddings and metadata for a given list of texts.
 
-    texts: formatted list of texts for creating embeddings
-    json_metadata: dict to pass as json metadata (ie. [{'title': 'API', 'description': '<API DESCRIPTION>'}, ...] for glossary)
-    filename: prefix to attach to saved index and metadata i.e. 'glossary' for saving 'glossary_index.faiss' and 'glossary_metadata.json'
+    Args:
+        formatted_texts (list): A formatted list of texts for creating embeddings.
+        json_metadata (list): A list of dictionaries to pass as JSON metadata. Each dictionary represents metadata for a text.
+        filename (str): A prefix to attach to the saved index and metadata files.
+
+    Returns:
+        None
+
+    Raises:
+        None
+
+    Example usage:
+        create_and_save_embedding_faiss(formatted_texts, json_metadata, filename)
     """
     embeddings = get_embeddings(formatted_texts)
     
