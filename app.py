@@ -25,6 +25,7 @@ logging.basicConfig(level=logging.INFO)
 # Configure Redis
 redis_host = os.getenv('REDIS_HOST', 'localhost')
 redis_port = os.getenv('REDIS_PORT', 6379)
+app.logger.info(f"Connecting to Redis at {redis_host}:{redis_port}")
 redis_client = redis.StrictRedis(host=redis_host, port=int(redis_port), db=0)
 
 # Set your OpenAI API key, create OpenAI client
@@ -68,6 +69,17 @@ def chat(decoded_token):
     # Append user message to conversation
     conversation.append({"role": "user", "content": user_message})
 
+    # Search for matches in the vector database
+    # We query an assistant here to check if additional context is needed to answer the prompt
+    thread = openai_client.beta.threads.create()
+    context_assistant = openai_client.beta.assistants.retrieve("asst_dtGSW0NS1HbxdpjQAbqXXf9F")
+    message = openai_client.beta.threads.messages.create(thread.id, role="user", content=user_message)
+
+    run = openai_client.beta.threads.runs.create_and_poll(
+        thread_id=thread.id,
+        assistant_id=context_assistant.id,
+    )
+
     endpoint_matches = search_index(user_message, './endpoint_index.faiss', './endpoint_metadata.json', openai_client)
     glossary_matches = search_index(user_message, './glossary_index.faiss', './glossary_metadata.json', openai_client)
 
@@ -104,75 +116,22 @@ def chat(decoded_token):
     else:
         glossary_context = "No relevant glossary items were found for the users query when searching a vector database of the OpenBankProject's API documentation."
         
-    system_message = f"""
-            You are a friendly, helpful assistant for the Open Bank Project API called Opey. You are rebellious against old banking paradigms and have a sense of humour. But always give the user accurate and helpful information.
-            If an endpoint requires authentication, you should ask the user which authentication method they would like to use, and suggest direct login as the easiest method.
-            When giving examples of endpoints, always use the current OBP API host URL: {obp_api_host}
-            Here is the some helpful information that could assist an answer to the current question: {endpoint_context} \n {glossary_context}
-            """
 
-    # append system context to conversation, or replace old system message
-    for i, message in enumerate(conversation):
-        if message["role"] == "system":
-            print("replacing system message")
-            conversation[i] = {"role": "system", "content": system_message}
-            break
-        elif message == conversation[-1]:
-            print("no system message found, adding one")
-            conversation.insert(0, {"role": "system", "content": system_message})
-            break
-        else:
-            continue
+    # Retrieve opey assistant from OpenAI
+    opey = openai_client.beta.assistants.retrieve("asst_vbwdYbWsTisP7YmwQhykiEwp")
+    # Create a run with the user message
+    with openai_client.beta.threads.runs.stream(
+        thread_id=thread.id,
+        assistant_id=opey.id,
+        additional_instructions=f"""When giving examples of endpoints, always use the current OBP API host URL: {obp_api_host}
+            Here is the some helpful information that could assist an answer to the current question: {endpoint_context} \n {glossary_context}"""
+    ) as stream: 
+        for event in stream:
+            # Print the text from text delta events
+            if event.event == "thread.message.delta" and event.data.delta.content:
+                print(event.data.delta.content[0].text)
 
-    # DEBUG
-    for message in conversation:
-        print('{' + message['role'] + ": " + " ".join(word for word in message['content'].split()[:3]) + "..." + "}")
-
-    # Choose model
-    model = 'gpt-4o'
-
-    num_tokens = num_tokens_from_conversation(conversation, 'gpt-4o')
-
-    print(f"Number of tokens: {num_tokens}")
-
-    if num_tokens > int(os.getenv('CONVERSATION_SUMMARY_TOKENS_LIMIT', 15000)):
-        token_limit_reached=True
-        # if the number of tokens in the conversation is too large, 
-        # summarize the previous conversation and put it in the system message, 
-        # remove the rest of the conversation
-        system_summary_message = {'role': 'user', 'content': "Summarize the previous conversation in a paragraph. Paying special attention to specific API's the user has requested/used."}
-        # Summarize everything except for the current user prompt 
-        conversation_to_summarise = conversation[:-1]
-        conversation_to_summarise.append(system_summary_message)
-        summary_response = openai_client.chat.completions.create(
-            model=model,
-            messages=conversation_to_summarise
-        )
-        print(summary_response.choices[0].message.content)
-        system_message += f"\nHere is a summary of the previous conversation had with the user: {summary_response.choices[0].message.content}"
-        conversation = [{"role": "system", "content": system_message}] # Remove all previous messages in the conversation, give only system message with conversation summary
-        conversation.append({"role": "user", "content": user_message})
-
-        print(f"Summarized conversation tokens: {num_tokens_from_conversation(conversation, 'gpt-4o')}")
-    else:
-        token_limit_reached = False
-
-    # Get response from gpt
-    response = openai_client.chat.completions.create(
-        model=model,
-        messages=conversation
-    )
-
-    assistant_message = response.choices[0].message.content
-    
-    conversation.append({"role": "assistant", "content": assistant_message})
-    
-    if token_limit_reached:
-        overwrite_conversation(session_id, conversation, redis_client)
-    else:
-        save_conversation(session_id, conversation, redis_client)
-
-    return jsonify({'reply': assistant_message})
+    return 
 
 @app.route('/feedback', methods=['POST'])
 def feedback():
