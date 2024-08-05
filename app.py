@@ -1,15 +1,18 @@
 # Description: This file contains the main Flask application that serves as the backend for the chatbot.
-
 import redis
 import openai
 import os
 import logging
 import json
 
+
 from utils import get_conversation, save_conversation, overwrite_conversation, search_index, num_tokens_from_conversation, token_required
 from flask import Flask, request, jsonify
+from flask_socketio import SocketIO, emit
 from flask_cors import CORS
 from dotenv import load_dotenv
+
+
 
 try:
     load_dotenv()
@@ -18,6 +21,7 @@ except:
 
 app = Flask(__name__)
 CORS(app)
+socketio = SocketIO(app, cors_allowed_origins="*", logger=True)
 
 # configure logging
 logging.basicConfig(level=logging.INFO)
@@ -32,8 +36,15 @@ redis_client = redis.StrictRedis(host=redis_host, port=int(redis_port), db=0)
 openai.api_key = os.getenv("OPENAI_API_KEY")
 openai_client = openai.OpenAI()
 
+@socketio.on('connect')
+def handle_connect(json):
+    headers = request.headers
+    app.logger.info(f"Connected to the WebSocket: {headers}")
+    # Access the headers here and perform any necessary operations
+    emit('message', {'data': 'Connected to the WebSocket'})
+    return
 
-@app.route('/chat', methods=['POST'])
+@socketio.on('chat')
 @token_required
 def chat(decoded_token):
     """
@@ -56,7 +67,8 @@ def chat(decoded_token):
 
     # Validate session_id and user_message
     if not session_id or not user_message:
-        return jsonify({'error': 'session_id and message are required'}), 400
+        emit('error', {'error': 'session_id and message are required'})
+        return
 
     # Get conversation history from redis
     # Should implement a fallback mechanism in case redis does not work
@@ -64,7 +76,8 @@ def chat(decoded_token):
         conversation = [json.loads(message) for message in get_conversation(session_id, redis_client, app)]
     except Exception as e:
         app.logger.error(f"error occured: {e}")
-        return jsonify({'error': f"could not load conversation: {e}"}), 500
+        emit('error', {'error': f"could not load conversation: {e}"})
+        return
 
     # Append user message to conversation
     conversation.append({"role": "user", "content": user_message})
@@ -130,12 +143,13 @@ def chat(decoded_token):
             # Print the text from text delta events
             if event.event == "thread.message.delta" and event.data.delta.content:
                 print(event.data.delta.content[0].text)
+                emit('message', {'data': event.data.delta.content[0].text})
 
-    return 
+    
 
 @app.route('/feedback', methods=['POST'])
 def feedback():
     data = request.json
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0')
+    socketio.run(app, debug=True, host='0.0.0.0')
