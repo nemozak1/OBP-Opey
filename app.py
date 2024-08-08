@@ -6,9 +6,9 @@ import logging
 import json
 
 
-from utils import get_conversation, save_conversation, overwrite_conversation, search_index, num_tokens_from_conversation, token_required
+from utils import get_conversation, save_conversation, overwrite_conversation, verifyJWT, search_index, num_tokens_from_conversation, token_required
 from flask import Flask, request, jsonify
-from flask_socketio import SocketIO, emit
+from flask_socketio import SocketIO, emit, disconnect
 from flask_cors import CORS
 from dotenv import load_dotenv
 
@@ -37,16 +37,22 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 openai_client = openai.OpenAI()
 
 @socketio.on('connect')
-def handle_connect(json):
+def handle_connect(auth):
     headers = request.headers
-    app.logger.info(f"Connected to the WebSocket: {headers}")
     # Access the headers here and perform any necessary operations
-    emit('message', {'data': 'Connected to the WebSocket'})
+    response, jwt_valid = verifyJWT(auth["token"])
+    if not jwt_valid:
+        emit('error', {'error': 'Invalid JWT'})
+        app.logger.info(f"Invalid JWT: {response}")
+        disconnect()
+        return
+    else:
+        app.logger.info(f"WebSocket opened with: {response}")
+        emit('message', {'data': 'Connected to the WebSocket'})
     return
 
 @socketio.on('chat')
-@token_required
-def chat(decoded_token):
+def chat(json):
     """
     Chat function that handles the conversation between the user and the assistant.
 
@@ -58,12 +64,12 @@ def chat(decoded_token):
         dict: JSON response containing the assistant's reply.
     """
     
-    data = request.json
+    data = json
     session_id = data.get('session_id')
     user_message = data.get('message')
     obp_api_host = data.get('obp_api_host')
 
-    app.logger.info(f"Incoming message from user {decoded_token['username']} (obp_user_id: {decoded_token['user_id']}):\n{json.dumps(data, indent=2)}")
+    #app.logger.info(f"Incoming message from user {decoded_token['username']} (obp_user_id: {decoded_token['user_id']}):\n{json.dumps(data, indent=2)}")
 
     # Validate session_id and user_message
     if not session_id or not user_message:
@@ -140,10 +146,15 @@ def chat(decoded_token):
             Here is the some helpful information that could assist an answer to the current question: {endpoint_context} \n {glossary_context}"""
     ) as stream: 
         for event in stream:
+            app.logger.info(f"Event: {event.event}")
+            if event.event == "thread.message.created":
+                emit('response stream start')
+            if event.event == "thread.message.completed":
+                emit('response stream end')
             # Print the text from text delta events
             if event.event == "thread.message.delta" and event.data.delta.content:
-                print(event.data.delta.content[0].text)
-                emit('message', {'data': event.data.delta.content[0].text})
+                app.logger.info(event.data.delta.content[0].text)
+                emit('response stream delta', {'assistant': f"{event.data.delta.content[0].text.value}"})
 
     
 

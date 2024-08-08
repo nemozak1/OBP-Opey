@@ -184,3 +184,28 @@ def token_required(f):
         return f(decoded_token, *args, **kwargs)
    
     return decorator
+
+def verifyJWT(token):
+    """
+    Verifies the JSON Web Token (JWT) included in the Authorization header of the request.
+
+    Args:
+        auth_header (str): The request object containing the Authorization header. i.e. "Bearer <JWT>"
+
+    Returns:
+        tuple: A tuple containing the decoded token and a boolean indicating whether the token is valid.
+            If the JWT is valid, the decoded token is returned as the first element of the tuple and the boolean value is True.
+            If the JWT is invalid or missing, a JSON response with an error message is returned as the first element of the tuple and the boolean value is False.
+    """
+    
+    try:
+        public_key = open(os.getenv("OBP_API_EXPLORER_II_PUBLIC_KEY_PATH", "./public_key.pem"), 'r').read()
+        decoded_token = jwt.decode(token, public_key, algorithms=["RS256"])
+    except ExpiredSignatureError:
+        return jsonify({'error': 'Token has expired'}), False
+    except InvalidSignatureError:
+        return jsonify({'error': 'Invalid signature'}), False
+    except DecodeError:
+        return jsonify({'error': 'Invalid token'}), False
+
+    return decoded_token, True
