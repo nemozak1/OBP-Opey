@@ -8,12 +8,10 @@ import sys
 import subprocess
 import uvicorn
 import socketio
+import traceback
 
 
 from utils import get_conversation, save_conversation, overwrite_conversation, verifyJWT, search_index, num_tokens_from_conversation, token_required
-from flask import Flask, request, jsonify
-from flask_socketio import SocketIO, emit, disconnect
-from flask_cors import CORS
 from dotenv import load_dotenv
 from openai import AsyncAssistantEventHandler
 from typing_extensions import override
@@ -40,7 +38,7 @@ logging.basicConfig(level=logging.INFO)
 # Configure Redis
 redis_host = os.getenv('REDIS_HOST', 'localhost')
 redis_port = os.getenv('REDIS_PORT', 6379)
-print(f"Connecting to Redis at {redis_host}:{redis_port}")
+logging.info(f"Connecting to Redis at {redis_host}:{redis_port}")
 redis_client = redis.StrictRedis(host=redis_host, port=int(redis_port), db=0)
 
 # Set your OpenAI API key, create OpenAI client
@@ -62,10 +60,10 @@ class OpeyEventHandler(AsyncAssistantEventHandler):
     async def on_event(self, event) -> None:
 
         if event.event != "thread.message.delta":
-            print(f"Event: {event.event}")
+            logging.info(f"Event: {event.event}")
 
         if event.event == "thread.run.failed":
-            print(f"Thread run failed: {event.data.last_error}")
+            logging.error(f"Thread run failed: {event.data.last_error}")
             if event.data.last_error.code == "rate_limit_exceeded":
                 await sio.emit('error', {'error': 'Rate limit exceeded'}, to=self.user_sid)
             else:
@@ -95,14 +93,14 @@ class Conversation():
         response, jwt_valid = verifyJWT(auth["token"])
         if not jwt_valid:
             await sio.emit('error', {'error': 'Invalid JWT'}, to=user_sid)
-            app.logger.error(f"Invalid JWT: {response}")
-            await disconnect()
+            logging.error(f"Invalid JWT: {response}")
+            await sio.disconnect()
             return
         else:
-            print(f"WebSocket opened with: {response}")
-            print("Connecting to assistant")
+            logging.info(f"WebSocket opened with: {response}")
+            logging.info("Connecting to assistant")
             self.opey_assistant = await openai_client.beta.assistants.retrieve(self.assistant_id)
-            print("Creating new assistant thread")
+            logging.info("Creating new assistant thread")
             self.thread = await openai_client.beta.threads.create()
             await sio.emit('message', {'data': 'Chatting with Opey'}, to=user_sid)
         return
@@ -127,7 +125,7 @@ class Conversation():
 
         # Validate session_id and user_message
         if not session_id or not user_message:
-            await emit('error', {'error': 'session_id and message are required'}, to=user_sid)
+            await sio.emit('error', {'error': 'session_id and message are required'}, to=user_sid)
             return
 
         # Add message to assistant thread
@@ -138,8 +136,9 @@ class Conversation():
         try:
             conversation = [json.loads(message) for message in await get_conversation(session_id, redis_client, app)]
         except Exception as e:
-            app.logger.error(f"error occured: {e}")
-            await emit('error', {'error': f"could not load conversation: {e}"}, to=user_sid)
+            logging.error(f"error occurred: {str(e)}")
+            logging.error(traceback.format_exc())  # Add this line to print the traceback
+            await sio.emit('error', {'error': f"could not load conversation"}, to=user_sid)
             return
 
         # Append user message to conversation
@@ -157,13 +156,12 @@ class Conversation():
         if context_run.status == "completed":
             messages = await openai_client.beta.threads.messages.list(thread_id=self.thread.id)
             context_messages = [msg async for msg in messages if msg.assistant_id == context_classifier_assistant.id]
-            for msg in context_messages:
-                print(f"Context messages: {msg.content[0].text.value}")
+            
         try:
             result = json.loads(context_messages[0].content[0].text.value) 
-            print(f"Context requirements: {result['context_required']}")
+            logging.info(f"Context requirements: {result['context_required']}")
         except Exception as e:
-            app.logger.error(f"Could not get context requirements from assistant: {e}")
+            logging.info(f"Could not get context requirements from assistant: {e}")
 
         if result['context_required'] == 'true':
             endpoint_matches = await search_index(user_message, './endpoint_index.faiss', './endpoint_metadata.json', openai_client)
@@ -172,7 +170,7 @@ class Conversation():
             if endpoint_matches:
                 match_list = [f"{m['path']} ({m['summary']})\n" for m in endpoint_matches]
                 formatted_matches = ', '.join(match_list)
-                print(f"Matches for query: \n{formatted_matches}\n")
+                logging.info(f"Matches for query: \n{formatted_matches}\n")
                 endpoint_context = "Here are endpoints (in order of similarity) that matched the users query in a vector database search of the OpenBankProject's API documentation:\n"
                 for match in endpoint_matches:
                     endpoint_context += f"\nEndpoint: {match['method'].upper()} {match['path']}\n"
@@ -181,7 +179,7 @@ class Conversation():
                         try:
                             endpoint_context += f"Parameters: {', '.join([p for p in match['parameters']['properties']])}\n"
                         except Exception as e:
-                            app.logger.error(f"Error obtaining context for {match}: \n{e}")
+                            logging.info(f"Error obtaining context for {match}: \n{e}")
                     else:
                         endpoint_context += f"Parameters: This endpoint does not require any parameters"
                     responses = [f"{r['code']} {r['body']}" for r in match['responses']]
@@ -202,8 +200,8 @@ class Conversation():
             else:
                 glossary_context = "No relevant glossary items were found for the users query when searching a vector database of the OpenBankProject's API documentation."
         else:
-            endpoint_context = "No relevant endpoints were found for the users query when searching a vector database of the OpenBankProject's API documentation."
-            glossary_context = "No relevant glossary items were found for the users query when searching a vector database of the OpenBankProject's API documentation."
+            endpoint_context = "The user message did not require additional endpoint context to answer the prompt."
+            glossary_context = "The user message did not require additional glossary context to answer the prompt."
 
         # Create a run with the user message
         async with openai_client.beta.threads.runs.stream(
@@ -231,6 +229,6 @@ async def feedback():
     data = request.json
 
 if __name__ == '__main__':
-    uvicorn.run("app:app", host="0.0.0.0", port=5000, lifespan="on", reload=True)
+    uvicorn.run("app:app", host="0.0.0.0", port=5000, lifespan="on", reload=True, log_level="info")
 
 

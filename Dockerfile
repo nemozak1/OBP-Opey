@@ -20,7 +20,7 @@ ENV PATH=/venv/bin:$PATH
 # C extensions.  They'll get installed into the virtual environment.
 WORKDIR /app
 COPY requirements.txt create_vector_index.py ./
-RUN pip install -r requirements.txt
+RUN pip install --no-cache-dir --upgrade -r requirements.txt
 
 # Accept build argument
 ARG OPENAI_API_KEY
@@ -56,4 +56,4 @@ COPY app.py utils.py ./
 
 EXPOSE 5000
 
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "app:app", "--log-level", "debug"]
+CMD ["fastapi", "run", "app.py", "--port", "5000"]
