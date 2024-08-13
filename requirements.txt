@@ -11,3 +11,7 @@ markdownify
 tiktoken
 PyJWT
 cryptography
+"fastapi[standard]"
+uvicorn
+python-socketio
+aiofiles

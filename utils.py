@@ -10,6 +10,7 @@ import os
 import openai
 import redis
 import json
+import aiofiles
 
 from jwt.exceptions import ExpiredSignatureError, InvalidSignatureError, DecodeError
 from functools import wraps
@@ -17,7 +18,7 @@ from flask import request, jsonify
 
 
 
-def get_conversation(session_id, redis_client: redis.StrictRedis, app: flask.app.Flask):
+async def get_conversation(session_id, redis_client: redis.StrictRedis, app: flask.app.Flask):
     """
     Retrieve the conversation history from Redis.
 
@@ -36,10 +37,10 @@ def get_conversation(session_id, redis_client: redis.StrictRedis, app: flask.app
     try:
         conversation = redis_client.lrange(session_id, 0, -1)
     except redis.exceptions.ConnectionError as e:
-        app.logger.error(f"Error connecting to redis server: {e}")
+        print(f"Error connecting to redis server: {e}")
         raise
     except Exception as e:
-        app.logger.error(f"Unexpected error occurred: {e}")
+        print(f"Unexpected error occurred: {e}")
         raise
     else:
         return [msg.decode('utf-8') for msg in conversation]
@@ -81,7 +82,7 @@ def overwrite_conversation(session_id: str, conversation: list, redis_client: re
     for message in conversation:
         redis_client.rpush(session_id, json.dumps(message))
 
-def search_index(query: str, index_file: str, metadata_file: str, client: openai.OpenAI):
+async def search_index(query: str, index_file: str, metadata_file: str, client: openai.OpenAI):
     """
     Search a vector database for matches given a query string.
 
@@ -97,7 +98,8 @@ def search_index(query: str, index_file: str, metadata_file: str, client: openai
         FileNotFoundError: If the index or metadata file is not found.
     """
     # Get the query embedding
-    query_embedding = get_embeddings([query], client)[0]
+    embeddings = await get_embeddings([query], client)
+    query_embedding = embeddings[0]
     query_embedding_np = np.array([query_embedding]).astype('float32')
     
     # Read the Faiss index
@@ -111,8 +113,9 @@ def search_index(query: str, index_file: str, metadata_file: str, client: openai
     
     # Load metadata
     try:
-        with open(metadata_file, 'r') as f:
-            metadata = json.load(f)
+        async with aiofiles.open(metadata_file, 'r') as f:
+            contents = await f.read()
+        metadata = json.loads(contents)
     except FileNotFoundError:
         raise FileNotFoundError(f"Metadata file '{metadata_file}' not found.")
     
@@ -149,8 +152,8 @@ def num_tokens_from_conversation(conversation: list, model: str) -> int:
     return num_tokens
 
 # Create vector embeddings
-def get_embeddings(texts, client: openai.OpenAI):
-    response = client.embeddings.create(
+async def get_embeddings(texts, client: openai.OpenAI):
+    response = await client.embeddings.create(
         model="text-embedding-3-small",
         input=texts
     )
