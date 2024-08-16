@@ -9,6 +9,7 @@ import subprocess
 import uvicorn
 import socketio
 import traceback
+import requests
 
 
 from utils import get_conversation, save_conversation, overwrite_conversation, verifyJWT, search_index, num_tokens_from_conversation, token_required
@@ -224,11 +225,18 @@ async def connect(sid, env, auth):
 async def chat(sid, data):
     await conversation.handle_chat(sid, data)
 
+"""
 @app.post('/feedback')
 async def feedback():
     data = request.json
 
+@app.post('/create-consent')
+async def create_consent(request: requests.Request):
+    data = await request.json()
+"""
+    
 if __name__ == '__main__':
-    uvicorn.run("app:app", host="0.0.0.0", port=5000, lifespan="on", reload=True, log_level="info")
+    logging_level = os.getenv('LOG_LEVEL', 'INFO')
+    uvicorn.run("app:app", host="0.0.0.0", port=5000, lifespan="on", reload=True, log_level=logging_level.lower())
 
 
