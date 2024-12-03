@@ -46,6 +46,22 @@ redis_client = redis.StrictRedis(host=redis_host, port=int(redis_port), db=0)
 openai.api_key = os.getenv("OPENAI_API_KEY")
 openai_client = openai.AsyncOpenAI()
 
+endpoint_metadata_path = os.getenv("ENDPOINT_METADATA_PATH")
+glossary_metadata_path = os.getenv("GLOSSAY_METADATA_PATH")
+
+endpoint_vector_database_path = os.getenv("ENDPOINT_VECTOR_DATABASE_PATH")
+glossary_vector_database_path = os.getenv("GLOSSARY_VECTOR_DATABASE_PATH")
+
+if not endpoint_metadata_path:
+    raise FileNotFoundError("Could not find endpoint_metadata.json make sure it is set in the .env")
+if not endpoint_vector_database_path:
+    raise FileNotFoundError("Could not find endpoint vector database make sure it is set in the .env")
+if not glossary_metadata_path:
+    raise FileNotFoundError("Could not find glossary_metadata.json make sure it is set in the .env")
+if not glossary_metadata_path:
+    raise FileNotFoundError("Could not find glossary vector database make sure it is set in the .env")
+
+
 class OpeyEventHandler(AsyncAssistantEventHandler):
     def __init__(self, user_sid, *args, **kwargs):
         self.user_sid = user_sid
@@ -165,8 +181,8 @@ class Conversation():
             logging.info(f"Could not get context requirements from assistant: {e}")
 
         if result['context_required'] == 'true':
-            endpoint_matches = await search_index(user_message, './endpoint_index.faiss', './endpoint_metadata.json', openai_client)
-            glossary_matches = await search_index(user_message, './glossary_index.faiss', './glossary_metadata.json', openai_client)
+            endpoint_matches = await search_index(user_message, endpoint_vector_database_path, endpoint_metadata_path, openai_client)
+            glossary_matches = await search_index(user_message, glossary_vector_database_path, glossary_metadata_path, openai_client)
 
             if endpoint_matches:
                 match_list = [f"{m['path']} ({m['summary']})\n" for m in endpoint_matches]
