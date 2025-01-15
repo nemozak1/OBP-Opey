@@ -47,11 +47,11 @@ python create_vector_index.py
 #### 4. Run
 For development:
 ```
-flask --app './main.py' run
+python app.py
 ```
 For production we use gunicorn:
 ```
-gunicorn --bind 0.0.0.0:5000 main:app
+gunicorn --bind 0.0.0.0:5000 aop:app
 ```
 #### 5. Chat
 Same as for docker (see above)
