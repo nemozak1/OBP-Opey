@@ -11,12 +11,13 @@ import openai
 import redis
 import json
 import aiofiles
+import logging
 
 from jwt.exceptions import ExpiredSignatureError, InvalidSignatureError, DecodeError
 from functools import wraps
 from flask import request, jsonify
 
-
+logger = logging.getLogger(__name__)
 
 async def get_conversation(session_id, redis_client: redis.StrictRedis, app: flask.app.Flask):
     """
@@ -35,12 +36,13 @@ async def get_conversation(session_id, redis_client: redis.StrictRedis, app: fla
 
     """
     try:
+        logger.info(f"Retrieving conversation for session ID: {session_id}")
         conversation = redis_client.lrange(session_id, 0, -1)
     except redis.exceptions.ConnectionError as e:
-        print(f"Error connecting to redis server: {e}")
+        logger.error(f"Error connecting to redis server: {e}")
         raise
     except Exception as e:
-        print(f"Unexpected error occurred: {e}")
+        logger.error(f"Unexpected error occurred: {e}")
         raise
     else:
         return [msg.decode('utf-8') for msg in conversation]
@@ -58,6 +60,8 @@ def save_conversation(session_id, conversation, redis_client: redis.StrictRedis)
     Returns:
     None
     """
+    logger.info(f"Saving conversation for session ID: {session_id}")
+    # TODO: Need to handle exceptions here
     for message in conversation:
         redis_client.rpush(session_id, json.dumps(message))
 
@@ -205,10 +209,12 @@ def verifyJWT(token):
         public_key = open(os.getenv("OBP_API_EXPLORER_II_PUBLIC_KEY_PATH", "./public_key.pem"), 'r').read()
         decoded_token = jwt.decode(token, public_key, algorithms=["RS256"])
     except ExpiredSignatureError:
-        return jsonify({'error': 'Token has expired'}), False
+        return {'error': 'Token has expired'}, False
     except InvalidSignatureError:
-        return jsonify({'error': 'Invalid signature'}), False
+        return {'error': 'Invalid signature'}, False
     except DecodeError:
-        return jsonify({'error': 'Invalid token'}), False
+        return {'error': 'Invalid token'}, False
+    except Exception as e:
+        return {'error': f'An unknown error occurred: {e}'}, False
 
     return decoded_token, True

@@ -1,5 +1,6 @@
 import requests
 import openai
+import logging
 import os
 import faiss
 import json
@@ -9,6 +10,10 @@ from dotenv import load_dotenv
 from markdownify import markdownify
 
 load_dotenv()
+
+# Set up logging
+logging_level = os.getenv('LOG_LEVEL', 'INFO')
+logger = logging.basicConfig(level=logging_level)
 
 client = openai.OpenAI()
 
@@ -21,13 +26,36 @@ obp_version = "v5.1.0"
 
 # Get the _static_ swagger docs, we may want to change this if we give this to a bank that has lots of dynamic endpoints
 swagger_url = "{}/obp/v5.1.0/resource-docs/{}/swagger?content=static".format(obp_base_url, obp_version)
-swagger_response = requests.get(swagger_url)
+logging.info(f"Requesting swagger docs from {swagger_url}")
+try:
+    swagger_response = requests.get(swagger_url)
+except Exception as e:
+    logging.error(f"Error fetching swagger docs: {e}")
+    logging.error(e.traceback.format_exc())
+
+if swagger_response.status_code != 200:
+    logging.error(f"Error fetching swagger docs: {swagger_response.text}")
+    raise Exception(f"Error fetching swagger docs: {swagger_response.text}")
+
 swagger_json = swagger_response.json()
 
-# glossary
+
+# get the glossary from OBP
 glossary_url = "{}/obp/{}/api/glossary".format(obp_base_url, obp_version)
-glossary_response = requests.get(glossary_url)
+logging.info(f"Requesting glossary from {glossary_url}")
+try:
+    glossary_response = requests.get(glossary_url)
+
+except Exception as e:
+    logging.error(f"Error fetching glossary: {e}")
+    logging.error(e.traceback.format_exc())
+
+if glossary_response.status_code != 200:
+    logging.error(f"Error fetching glossary: {glossary_response.text}")
+    raise Exception(f"Error fetching glossary: {glossary_response.text}")
+
 glossary_json = glossary_response.json()
+
 
 def resolve_reference(ref, definitions, resolved={}):
     """
@@ -83,8 +111,10 @@ def parse_swagger(swagger_json):
     Returns:
         list: A list of dictionaries, where each dictionary represents an endpoint and its details.
     """
-    
-    paths = swagger_json['paths']
+    try:
+        paths = swagger_json['paths']
+    except KeyError:
+        raise KeyError("no 'paths' key found in swagger JSON, ")
     definitions = swagger_json['definitions']
 
     endpoints = []

@@ -15,7 +15,7 @@ sudo docker compose build
 ```bash
 sudo docker compose up
 ```
-Note: If you are running this on your local docker engine and you already have an instance of redis running, you may need to change the ```REDIS_PORT``` in the env file to avoid clashing
+Note: If you are running this on your local docker engine and you already have an instance of redis running, you may need to change the ```REDIS_PORT``` in the env file to avoid clashing.
 #### 4. Chat
 The chat endpoint should now be running at http://127.0.0.1:5000/chat
 
@@ -47,11 +47,11 @@ python create_vector_index.py
 #### 4. Run
 For development:
 ```
-flask --app './main.py' run
+python app.py
 ```
 For production we use gunicorn:
 ```
-gunicorn --bind 0.0.0.0:5000 main:app
+gunicorn --bind 0.0.0.0:5000 aop:app
 ```
 #### 5. Chat
 Same as for docker (see above)

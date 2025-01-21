@@ -1,96 +1,31 @@
-# Description: This file contains the main Flask application that serves as the backend for the chatbot.
-import redis
-import openai
-import os
+# Description: This file contains the framework for the chatbot itself.
+
 import logging
 import json
-import sys
-import subprocess
-import uvicorn
-import socketio
 import traceback
-import requests
+import importlib
 
+obp = importlib.import_module("obp-python-apiv5.1")
 
-from utils import get_conversation, save_conversation, overwrite_conversation, verifyJWT, search_index, num_tokens_from_conversation, token_required
-from dotenv import load_dotenv
+from utils import get_conversation, verifyJWT, search_index
 from openai import AsyncAssistantEventHandler
 from typing_extensions import override
-from fastapi import FastAPI
+from langchain.agents.openai_assistant import OpenAIAssistantRunnable
 
-try:
-    load_dotenv()
-except:
-    print("warning, error loading .env")
+class Opey():
 
-# Init FastAPI app
-app = FastAPI()
+    async def fetch_assistant(self, assistant_id):
+        """
+        Get the assistant from openAI as langchain agent
 
-#Socket io (sio) create a Socket.IO server
-sio=socketio.AsyncServer(cors_allowed_origins='*',async_mode='asgi')
+        Parameters:
+        assistant_id (str): The ID of the openai assistant used for Opey.
+        """
+        self.agent = await OpenAIAssistantRunnable(assistant_id=assistant_id, as_agent=True)
+        return
 
-#wrap with ASGI application
-socket_app = socketio.ASGIApp(sio)
-mount_path = os.getenv('MOUNT_PATH', '/opey')
-app.mount(mount_path, socket_app)
+    async def 
 
-# configure logging
-logging.basicConfig(level=logging.INFO)
-
-# Configure Redis
-redis_host = os.getenv('REDIS_HOST', 'localhost')
-redis_port = os.getenv('REDIS_PORT', 6379)
-logging.info(f"Connecting to Redis at {redis_host}:{redis_port}")
-redis_client = redis.StrictRedis(host=redis_host, port=int(redis_port), db=0)
-
-# Set your OpenAI API key, create OpenAI client
-openai.api_key = os.getenv("OPENAI_API_KEY")
-openai_client = openai.AsyncOpenAI()
-
-endpoint_metadata_path = os.getenv("ENDPOINT_METADATA_PATH")
-glossary_metadata_path = os.getenv("GLOSSAY_METADATA_PATH")
-
-endpoint_vector_database_path = os.getenv("ENDPOINT_VECTOR_DATABASE_PATH")
-glossary_vector_database_path = os.getenv("GLOSSARY_VECTOR_DATABASE_PATH")
-
-if not endpoint_metadata_path:
-    raise FileNotFoundError("Could not find endpoint_metadata.json make sure it is set in the .env")
-if not endpoint_vector_database_path:
-    raise FileNotFoundError("Could not find endpoint vector database make sure it is set in the .env")
-if not glossary_metadata_path:
-    raise FileNotFoundError("Could not find glossary_metadata.json make sure it is set in the .env")
-if not glossary_metadata_path:
-    raise FileNotFoundError("Could not find glossary vector database make sure it is set in the .env")
-
-
-class OpeyEventHandler(AsyncAssistantEventHandler):
-    def __init__(self, user_sid, *args, **kwargs):
-        self.user_sid = user_sid
-        super().__init__(*args, **kwargs)
-
-    @override
-    async def on_text_delta(self, delta, snapshot):
-        await sio.emit('response stream delta', {'assistant': f"{delta.value}"}, to=self.user_sid) 
-    
-    async def on_message_created(self, message):
-        await sio.emit('response stream start', to=self.user_sid)
-
-    async def on_event(self, event) -> None:
-
-        if event.event != "thread.message.delta":
-            logging.info(f"Event: {event.event}")
-
-        if event.event == "thread.run.failed":
-            logging.error(f"Thread run failed: {event.data.last_error}")
-            if event.data.last_error.code == "rate_limit_exceeded":
-                await sio.emit('error', {'error': 'Rate limit exceeded'}, to=self.user_sid)
-            else:
-                await sio.emit('error', {'error': 'Thread run failed'}, to=self.user_sid)
-
-        return super().on_event(event)
-    
-    async def on_message_done(self, message):
-        await sio.emit('response stream end', to=self.user_sid)
 
 class Conversation():
     def __init__(self, assistant_id: str):
@@ -182,8 +117,8 @@ class Conversation():
             logging.info(f"Could not get context requirements from assistant: {e}")
 
         if result['context_required'] == 'true':
-            endpoint_matches = await search_index(user_message, endpoint_vector_database_path, endpoint_metadata_path, openai_client)
-            glossary_matches = await search_index(user_message, glossary_vector_database_path, glossary_metadata_path, openai_client)
+            endpoint_matches = await search_index(user_message, './endpoint_index.faiss', './endpoint_metadata.json', openai_client)
+            glossary_matches = await search_index(user_message, './glossary_index.faiss', './glossary_metadata.json', openai_client)
 
             if endpoint_matches:
                 match_list = [f"{m['path']} ({m['summary']})\n" for m in endpoint_matches]
@@ -232,28 +167,33 @@ class Conversation():
         ) as stream:
             await stream.until_done()
 
-conversation = Conversation("asst_vbwdYbWsTisP7YmwQhykiEwp")
 
-@sio.on('connect')
-async def connect(sid, auth):
-    await conversation.handle_connect(sid, auth)
+class OpeyEventHandler(AsyncAssistantEventHandler):
+    def __init__(self, user_sid, *args, **kwargs):
+        self.user_sid = user_sid
+        super().__init__(*args, **kwargs)
 
-@sio.on('chat')
-async def chat(sid, data):
-    await conversation.handle_chat(sid, data)
-
-"""
-@app.post('/feedback')
-async def feedback():
-    data = request.json
-
-@app.post('/create-consent')
-async def create_consent(request: requests.Request):
-    data = await request.json()
-"""
+    @override
+    async def on_text_delta(self, delta, snapshot):
+        await sio.emit('response stream delta', {'assistant': f"{delta.value}"}, to=self.user_sid) 
     
-if __name__ == '__main__':
-    logging_level = os.getenv('LOG_LEVEL', 'INFO')
-    uvicorn.run("app:app", host="0.0.0.0", port=5000, lifespan="on", reload=True, log_level=logging_level.lower())
+    async def on_message_created(self, message):
+        await sio.emit('response stream start', to=self.user_sid)
 
+    async def on_event(self, event) -> None:
+
+        if event.event != "thread.message.delta":
+            logging.info(f"Event: {event.event}")
+
+        if event.event == "thread.run.failed":
+            logging.error(f"Thread run failed: {event.data.last_error}")
+            if event.data.last_error.code == "rate_limit_exceeded":
+                await sio.emit('error', {'error': 'Rate limit exceeded'}, to=self.user_sid)
+            else:
+                await sio.emit('error', {'error': 'Thread run failed'}, to=self.user_sid)
+
+        return super().on_event(event)
+    
+    async def on_message_done(self, message):
+        await sio.emit('response stream end', to=self.user_sid)
 
