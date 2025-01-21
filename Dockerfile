@@ -1,4 +1,4 @@
-FROM python:3.10-slim
+FROM python:3.12-slim
 
 # We are building a single image that does build the vector index if needed, therefore we need to install the C dependencies
 # Install a full C toolchain and C build-time dependencies for
