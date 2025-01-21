@@ -39,10 +39,23 @@ if swagger_response.status_code != 200:
 
 swagger_json = swagger_response.json()
 
-# glossary
+
+# get the glossary from OBP
 glossary_url = "{}/obp/{}/api/glossary".format(obp_base_url, obp_version)
-glossary_response = requests.get(glossary_url)
+logging.info(f"Requesting glossary from {glossary_url}")
+try:
+    glossary_response = requests.get(glossary_url)
+
+except Exception as e:
+    logging.error(f"Error fetching glossary: {e}")
+    logging.error(e.traceback.format_exc())
+
+if glossary_response.status_code != 200:
+    logging.error(f"Error fetching glossary: {glossary_response.text}")
+    raise Exception(f"Error fetching glossary: {glossary_response.text}")
+
 glossary_json = glossary_response.json()
+
 
 def resolve_reference(ref, definitions, resolved={}):
     """
@@ -98,8 +111,10 @@ def parse_swagger(swagger_json):
     Returns:
         list: A list of dictionaries, where each dictionary represents an endpoint and its details.
     """
-    
-    paths = swagger_json['paths']
+    try:
+        paths = swagger_json['paths']
+    except KeyError:
+        raise KeyError("no 'paths' key found in swagger JSON, ")
     definitions = swagger_json['definitions']
 
     endpoints = []

@@ -235,7 +235,7 @@ class Conversation():
 conversation = Conversation("asst_vbwdYbWsTisP7YmwQhykiEwp")
 
 @sio.on('connect')
-async def connect(sid, env, auth):
+async def connect(sid, auth):
     await conversation.handle_connect(sid, auth)
 
 @sio.on('chat')
