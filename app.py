@@ -31,8 +31,7 @@ sio=socketio.AsyncServer(cors_allowed_origins='*',async_mode='asgi')
 
 #wrap with ASGI application
 socket_app = socketio.ASGIApp(sio)
-mount_path = os.getenv('MOUNT_PATH', '/opey')
-app.mount(mount_path, socket_app)
+app.mount("/", socket_app)
 
 # configure logging
 logging.basicConfig(level=logging.INFO)
