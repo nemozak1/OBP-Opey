@@ -1,59 +1,20 @@
-# Name the single Python image we're using everywhere.
-ARG python=python:3.12-slim
+FROM python:3.12-slim
 
-# Build stage:
-FROM ${python} AS build
-
+# We are building a single image that does build the vector index if needed, therefore we need to install the C dependencies
 # Install a full C toolchain and C build-time dependencies for
 # everything we're going to need.
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive \
-    apt-get install --no-install-recommends --assume-yes \
+    apt-get install --assume-yes --no-install-recommends \
       build-essential \
-      libpq-dev
+      libpq-dev \
+      libpq5 \
+  && apt-get clean
 
-# Create the virtual environment.
-RUN python3 -m venv /venv
-ENV PATH=/venv/bin:$PATH
-
-# Install the Python library dependencies, including those with
-# C extensions.  They'll get installed into the virtual environment.
 WORKDIR /app
-COPY requirements.txt create_vector_index.py ./
+COPY . .
 RUN pip install --no-cache-dir --upgrade -r requirements.txt
-
-# Accept build argument
-ARG OPENAI_API_KEY
-
-# Create the vector database
-ENV OPENAI_API_KEY=$OPENAI_API_KEY
-RUN python create_vector_index.py
-
-# Final stage:
-FROM ${python}
-
-# Install the runtime-only C library dependencies we need.
-RUN apt-get update \
- && DEBIAN_FRONTEND=noninteractive \
-    apt-get install --no-install-recommends --assume-yes \
-      libpq5
-
-
-WORKDIR /app
-
-# Copy the virtual environment from the first stage.
-COPY --from=build /venv /venv
-ENV PATH=/venv/bin:$PATH
-
-# Copy the vector index
-COPY --from=build /app/vector-database/ .
-
-# Copy the public key in
-COPY public_key.pem ./
-
-# Copy the application in.
-COPY app.py utils.py ./
 
 EXPOSE 5000
 
-CMD ["fastapi", "run", "app.py", "--port", "5000"]
+CMD [ "./entry_point.sh" ]
