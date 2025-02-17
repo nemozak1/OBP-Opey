@@ -42,6 +42,14 @@ redis_port = os.getenv('REDIS_PORT', 6379)
 logging.info(f"Connecting to Redis at {redis_host}:{redis_port}")
 redis_client = redis.StrictRedis(host=redis_host, port=int(redis_port), db=0)
 
+# Test if Redis is connected
+try:
+    redis_client.ping()
+except redis.exceptions.ConnectionError as e:
+    logging.error(f"Error connecting to Redis: {e}")
+    logging.info("Are you sure that you have correctly set the 'REDIS_HOST' and 'REDIS_PORT' environment variables?")
+    sys.exit(1)
+
 # Set your OpenAI API key, create OpenAI client
 openai.api_key = os.getenv("OPENAI_API_KEY")
 openai_client = openai.AsyncOpenAI()
@@ -109,9 +117,8 @@ class Conversation():
         # Access the headers here and perform any necessary operations
         response, jwt_valid = verifyJWT(auth["token"])
         if not jwt_valid:
-            await sio.emit('error', {'error': 'Invalid JWT'}, to=user_sid)
             logging.error(f"Invalid JWT: {response}")
-            await sio.disconnect()
+            await sio.emit('error', {'error': 'Invalid JWT'})
             return
         else:
             logging.info(f"WebSocket opened with: {response}")
@@ -119,7 +126,7 @@ class Conversation():
             self.opey_assistant = await openai_client.beta.assistants.retrieve(self.assistant_id)
             logging.info("Creating new assistant thread")
             self.thread = await openai_client.beta.threads.create()
-            await sio.emit('message', {'data': 'Chatting with Opey'}, to=user_sid)
+            await sio.emit('message', {'data': 'Chatting with Opey'})
         return
 
     async def handle_chat(self, user_sid, data):
@@ -181,8 +188,18 @@ class Conversation():
             logging.info(f"Could not get context requirements from assistant: {e}")
 
         if result['context_required'] == 'true':
-            endpoint_matches = await search_index(user_message, endpoint_vector_database_path, endpoint_metadata_path, openai_client)
-            glossary_matches = await search_index(user_message, glossary_vector_database_path, glossary_metadata_path, openai_client)
+            try: 
+                endpoint_matches = await search_index(user_message, endpoint_vector_database_path, endpoint_metadata_path, openai_client)
+            except Exception as e:
+                logging.info(f"Error searching for endpoint matches: {e}")
+                await sio.emit('error', {'error': 'Internal Server Error'}, to=user_sid)
+                return
+            
+            try:
+                glossary_matches = await search_index(user_message, glossary_vector_database_path, glossary_metadata_path, openai_client)
+            except Exception as e:
+                logging.info(f"Error searching for glossary matches: {e}")
+                await sio.emit('error', {'error': 'Internal Server Error'}, to=user_sid)
 
             if endpoint_matches:
                 match_list = [f"{m['path']} ({m['summary']})\n" for m in endpoint_matches]
@@ -234,7 +251,7 @@ class Conversation():
 conversation = Conversation("asst_vbwdYbWsTisP7YmwQhykiEwp")
 
 @sio.on('connect')
-async def connect(sid, auth):
+async def connect(event, sid, auth):
     await conversation.handle_connect(sid, auth)
 
 @sio.on('chat')

@@ -206,7 +206,7 @@ def verifyJWT(token):
     """
     
     try:
-        public_key = open(os.getenv("OBP_API_EXPLORER_II_PUBLIC_KEY_PATH", "./public_key.pem"), 'r').read()
+        public_key = open(os.getenv("OBP_API_EXPLORER_II_PUBLIC_KEY_PATH", "/tmp/certs/public_key.pem"), 'r').read()
         decoded_token = jwt.decode(token, public_key, algorithms=["RS256"])
     except ExpiredSignatureError:
         return {'error': 'Token has expired'}, False
