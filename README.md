@@ -9,23 +9,13 @@ A helpful chatbot trained on Open Bank Project API documentation
 
 * Make sure you have a `./certs/public_key.pem` file. Make the directory and copy over the key from API Explorer II if not.
 
-* Build the vector database with `python create_vector_index.py`. Make sure that there is a subsequent ./vector-database dir with the following files:
-
-```
-└── vector-database
-    ├── endpoint_index.faiss
-    ├── endpoint_metadata.json
-    ├── glossary_index.faiss
-    └── glossary_metadata.json
-```
-
 Change the .env file to have 
 ```.env
-ENDPOINT_METADATA_PATH=/tmp/vector-database/endpoint_metadata.json
-GLOSSAY_METADATA_PATH=/tmp/vector-database/glossary_metadata.json
+ENDPOINT_METADATA_PATH=./vector-database/endpoint_metadata.json
+GLOSSAY_METADATA_PATH=./vector-database/glossary_metadata.json
 
-ENDPOINT_VECTOR_DATABASE_PATH=/tmp/vector-database/endpoint_index.faiss
-GLOSSARY_VECTOR_DATABASE_PATH=/tmp/vector-database/glossary_index.faiss
+ENDPOINT_VECTOR_DATABASE_PATH=./vector-database/endpoint_index.faiss
+GLOSSARY_VECTOR_DATABASE_PATH=./vector-database/glossary_index.faiss
 ```
 
 #### 2. Build App
