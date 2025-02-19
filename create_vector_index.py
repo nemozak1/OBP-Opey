@@ -24,8 +24,17 @@ VECTOR_DIRECTORY = "./vector-database"
 obp_base_url = "https://apisandbox.openbankproject.com"
 obp_version = "v5.1.0"
 
+# If the swagger path is overriden by an environment variable, use that
+obp_swagger_url_from_env = os.getenv('OBP_SWAGGER_URL')
+if obp_swagger_url_from_env:
+    logging.info(f"Swagger URL Overriden from environment variable OBP_SWAGGER_URL: {obp_swagger_url_from_env}")
+    swagger_url = f"{obp_base_url}{obp_swagger_url_from_env}"
+else:
+    swagger_url = "{}/obp/v5.1.0/resource-docs/{}/swagger?locale=en_GB".format(obp_base_url, obp_version)
+    logging.info(f"Swagger URL not overriden, using default: {swagger_url}")
+
 # Get the _static_ swagger docs, we may want to change this if we give this to a bank that has lots of dynamic endpoints
-swagger_url = "{}/obp/v5.1.0/resource-docs/{}/swagger?content=static".format(obp_base_url, obp_version)
+
 logging.info(f"Requesting swagger docs from {swagger_url}")
 try:
     swagger_response = requests.get(swagger_url)
@@ -35,7 +44,10 @@ except Exception as e:
 
 if swagger_response.status_code != 200:
     logging.error(f"Error fetching swagger docs: {swagger_response.text}")
+    logging.info("If the swagger endpoint is broken, try overriding it with a known working one by setting OBP_SWAGGER_URL\n NOT RECOMMENDED FOR PRODUCTION")
     raise Exception(f"Error fetching swagger docs: {swagger_response.text}")
+else:
+    logging.info("Swagger docs fetched successfully")
 
 swagger_json = swagger_response.json()
 
@@ -53,6 +65,8 @@ except Exception as e:
 if glossary_response.status_code != 200:
     logging.error(f"Error fetching glossary: {glossary_response.text}")
     raise Exception(f"Error fetching glossary: {glossary_response.text}")
+else:
+    logging.info("Glossary fetched successfully")
 
 glossary_json = glossary_response.json()
 
