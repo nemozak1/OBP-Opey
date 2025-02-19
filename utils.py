@@ -204,9 +204,13 @@ def verifyJWT(token):
             If the JWT is valid, the decoded token is returned as the first element of the tuple and the boolean value is True.
             If the JWT is invalid or missing, a JSON response with an error message is returned as the first element of the tuple and the boolean value is False.
     """
-    
     try:
         public_key = open(os.getenv("OBP_API_EXPLORER_II_PUBLIC_KEY_PATH", "/tmp/certs/public_key.pem"), 'r').read()
+    except Exception as e:
+        return {'error': f'An error occurred while reading the public key: {e}'}, False
+
+    
+    try:
         decoded_token = jwt.decode(token, public_key, algorithms=["RS256"])
     except ExpiredSignatureError:
         return {'error': 'Token has expired'}, False
